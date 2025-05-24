@@ -572,49 +572,32 @@ class IndividuoPG:
         if self.profundidade == 0:
             return self.criar_folha()
 
-        # OPERADORES DISPONÍVEIS PARA O ALUNO MODIFICAR
+        # Simplificando os operadores disponíveis para evitar comportamentos complexos
         operador = random.choice(
-            ['+', '-', '*', '/', 'max', 'min', 'abs', 'if_positivo', 'if_negativo',
-             'normalize', 'sigmoid', 'tanh', 'distancia', 'angulo_normalizado',
-             'if_maior', 'if_menor', 'if_proximo'])
-        if operador in ['+', '-', '*', '/']:
+            ['+', '-', '*', 'if_positivo', 'if_negativo', 'normalize'])
+        
+        if operador in ['+', '-', '*']:
             return {
                 'tipo': 'operador',
                 'operador': operador,
                 'esquerda': IndividuoPG(self.profundidade - 1).arvore_aceleracao,
                 'direita': IndividuoPG(self.profundidade - 1).arvore_aceleracao
             }
-        elif operador in ['max', 'min']:
-            return {
-                'tipo': 'operador',
-                'operador': operador,
-                'esquerda': IndividuoPG(self.profundidade - 1).arvore_aceleracao,
-                'direita': IndividuoPG(self.profundidade - 1).arvore_aceleracao
-            }
-        elif operador in ['abs', 'normalize', 'sigmoid', 'tanh']:
+        else:  # operadores de controle simplificados
             return {
                 'tipo': 'operador',
                 'operador': operador,
                 'esquerda': IndividuoPG(self.profundidade - 1).arvore_aceleracao,
                 'direita': None
             }
-        else:  # operadores de controle
-            return {
-                'tipo': 'operador',
-                'operador': operador,
-                'esquerda': IndividuoPG(self.profundidade - 1).arvore_aceleracao,
-                'direita': IndividuoPG(self.profundidade - 1).arvore_aceleracao
-            }
 
     def criar_folha(self):
-        # VARIÁVEIS DISPONÍVEIS PARA O ALUNO MODIFICAR
-        tipo = random.choice(['constante', 'dist_recurso', 'dist_obstaculo', 'dist_meta',
-                             'angulo_recurso', 'angulo_meta', 'energia', 'velocidade', 'meta_atingida'])
+        # Simplificando as variáveis disponíveis para focar em comportamentos essenciais
+        tipo = random.choice(['constante', 'dist_recurso', 'dist_obstaculo', 'angulo_recurso', 'energia'])
         if tipo == 'constante':
             return {
                 'tipo': 'folha',
-                # VALOR ALEATÓRIO PARA O ALUNO MODIFICAR
-                'valor': random.uniform(-5, 5)
+                'valor': random.uniform(-2, 2)  # Reduzindo o range de valores aleatórios
             }
         else:
             return {
@@ -752,7 +735,7 @@ class IndividuoPG:
 
 class ProgramacaoGenetica:
     def __init__(self, tamanho_populacao=50, profundidade=3):
-        # PARÂMETROS PARA O ALUNO MODIFICAR
+        # Ajustando os parâmetros para uma evolução mais estável
         self.tamanho_populacao = tamanho_populacao
         self.profundidade = profundidade
         self.populacao = [IndividuoPG(profundidade)
@@ -772,6 +755,8 @@ class ProgramacaoGenetica:
             for _ in range(5):
                 ambiente.reset()
                 robo.reset(ambiente.largura // 2, ambiente.altura // 2)
+                ultima_posicao = (robo.x, robo.y)
+                tempo_sem_movimento = 0
 
                 while True:
                     # Obter sensores
@@ -781,39 +766,65 @@ class ProgramacaoGenetica:
                     aceleracao = individuo.avaliar(sensores, 'aceleracao')
                     rotacao = individuo.avaliar(sensores, 'rotacao')
 
-                    # Limitar valores
-                    aceleracao = max(-1, min(1, aceleracao))
-                    rotacao = max(-0.5, min(0.5, rotacao))
+                    # Limitar valores mais estritamente
+                    aceleracao = max(-0.5, min(0.5, aceleracao))
+                    rotacao = max(-0.2, min(0.2, rotacao))
 
                     # Mover robô
                     sem_energia = robo.mover(aceleracao, rotacao, ambiente)
 
+                    # Verificar movimento
+                    distancia_movimento = np.sqrt(
+                        (robo.x - ultima_posicao[0])**2 + (robo.y - ultima_posicao[1])**2)
+                    if distancia_movimento < 0.1:
+                        tempo_sem_movimento += 1
+                    else:
+                        tempo_sem_movimento = 0
+                    ultima_posicao = (robo.x, robo.y)
+
                     # Verificar fim da simulação
-                    if sem_energia or ambiente.passo():
+                    if sem_energia or ambiente.passo() or tempo_sem_movimento > 50:
                         break
 
                 # Calcular fitness base
-                fitness_base = 100  # Novo: Fitness base para garantir valor positivo
+                fitness_base = 200
                 
                 # Pontuações positivas
-                pontos_recursos = robo.recursos_coletados * 150
-                pontos_distancia = robo.distancia_percorrida * 0.2
-                pontos_energia = robo.energia * 0.8
+                pontos_recursos = robo.recursos_coletados * 200
+                pontos_distancia = robo.distancia_percorrida * 0.1
+                pontos_energia = robo.energia * 1.0
                 
-                # Penalidades (convertidas para valores positivos menores)
-                penalidade_colisoes = min(robo.colisoes * 20, 100)  # Limita a penalidade por colisões
-                penalidade_tempo_parado = min(robo.tempo_parado, 50)  # Limita a penalidade por tempo parado
-                penalidade_energia = (100 - robo.energia) * 0.4  # Reduzida a penalidade por energia
-                penalidade_tempo = min(ambiente.tempo * 0.05, 50)  # Limita a penalidade por tempo
+                # Penalidades
+                penalidade_colisoes = min(robo.colisoes * 30, 150)
+                penalidade_tempo_parado = min(robo.tempo_parado * 1.5, 75)
+                penalidade_energia = (100 - robo.energia) * 0.6
+                penalidade_tempo = min(ambiente.tempo * 0.08, 80)
+                
+                # Penalidade por movimento circular
+                penalidade_circular = 0
+                if robo.distancia_percorrida > 0:
+                    raio_medio = robo.distancia_percorrida / (2 * np.pi)
+                    if raio_medio < 50:  # Se o raio médio for muito pequeno
+                        penalidade_circular = 100
                 
                 # Bônus por eficiência
                 bonus_eficiencia = 0
                 if robo.recursos_coletados > 0:
                     eficiencia = robo.recursos_coletados / (robo.distancia_percorrida + 1)
-                    bonus_eficiencia = eficiencia * 200
+                    bonus_eficiencia = eficiencia * 300
                 
                 # Bônus por meta
-                bonus_meta = 1000 if robo.meta_atingida else 0
+                bonus_meta = 2000 if robo.meta_atingida else 0
+                
+                # Bônus por completude
+                bonus_completude = 0
+                if robo.recursos_coletados == len(ambiente.recursos):
+                    bonus_completude = 500
+                
+                # Bônus por velocidade
+                bonus_velocidade = 0
+                if robo.meta_atingida:
+                    bonus_velocidade = max(0, 1000 - ambiente.tempo)
                 
                 # Cálculo final do fitness
                 fitness_tentativa = (
@@ -822,19 +833,20 @@ class ProgramacaoGenetica:
                     pontos_distancia +
                     pontos_energia +
                     bonus_eficiencia +
-                    bonus_meta -
+                    bonus_meta +
+                    bonus_completude +
+                    bonus_velocidade -
                     penalidade_colisoes -
                     penalidade_tempo_parado -
                     penalidade_energia -
-                    penalidade_tempo
+                    penalidade_tempo -
+                    penalidade_circular
                 )
                 
-                # Garantir que o fitness seja sempre positivo
                 fitness_tentativa = max(1, fitness_tentativa)
-                
                 fitness += fitness_tentativa
 
-            individuo.fitness = fitness / 5  # Média das 5 tentativas
+            individuo.fitness = fitness / 5
 
             # Atualizar melhor indivíduo
             if individuo.fitness > self.melhor_fitness:
