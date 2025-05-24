@@ -679,7 +679,7 @@ class IndividuoPG:
             return min(esquerda, direita)
 
     def mutacao(self, probabilidade=0.1):
-        # PROBABILIDADE DE MUTAÇÃO PARA O ALUNO MODIFICAR
+        # Probabilidade de mutação reduzida para 10% para maior estabilidade
         self.mutacao_no(self.arvore_aceleracao, probabilidade)
         self.mutacao_no(self.arvore_rotacao, probabilidade)
 
@@ -687,8 +687,8 @@ class IndividuoPG:
         if random.random() < probabilidade:
             if no['tipo'] == 'folha':
                 if 'valor' in no:
-                    # VALOR ALEATÓRIO PARA O ALUNO MODIFICAR
-                    no['valor'] = random.uniform(-5, 5)
+                    # Reduzindo o range de valores aleatórios para mutações mais suaves
+                    no['valor'] = random.uniform(-2, 2)
                 elif 'variavel' in no:
                     no['variavel'] = random.choice(['dist_recurso', 'dist_obstaculo', 'dist_meta',
                                                    'angulo_recurso', 'angulo_meta', 'energia', 'velocidade', 'meta_atingida'])
@@ -703,15 +703,17 @@ class IndividuoPG:
 
     def crossover(self, outro):
         novo = IndividuoPG(self.profundidade)
+        # Probabilidade de crossover adaptativa baseada no fitness
+        prob_crossover = 0.7 if self.fitness > outro.fitness else 0.3
         novo.arvore_aceleracao = self.crossover_no(
-            self.arvore_aceleracao, outro.arvore_aceleracao)
+            self.arvore_aceleracao, outro.arvore_aceleracao, prob_crossover)
         novo.arvore_rotacao = self.crossover_no(
-            self.arvore_rotacao, outro.arvore_rotacao)
+            self.arvore_rotacao, outro.arvore_rotacao, prob_crossover)
         return novo
 
-    def crossover_no(self, no1, no2):
-        # PROBABILIDADE DE CROSSOVER PARA O ALUNO MODIFICAR
-        if random.random() < 0.5:
+    def crossover_no(self, no1, no2, probabilidade):
+        # Probabilidade de crossover adaptativa
+        if random.random() < probabilidade:
             return no1.copy()
         else:
             return no2.copy()
@@ -867,7 +869,6 @@ class ProgramacaoGenetica:
         return selecionados
 
     def evoluir(self, n_geracoes=50):
-        # NÚMERO DE GERAÇÕES PARA O ALUNO MODIFICAR
         for geracao in range(n_geracoes):
             print(f"Geração {geracao + 1}/{n_geracoes}")
 
@@ -891,7 +892,7 @@ class ProgramacaoGenetica:
             while len(nova_populacao) < self.tamanho_populacao:
                 pai1, pai2 = random.sample(selecionados, 2)
                 filho = pai1.crossover(pai2)
-                # PROBABILIDADE DE MUTAÇÃO PARA O ALUNO MODIFICAR
+                # Probabilidade de mutação reduzida para 10%
                 filho.mutacao(probabilidade=0.1)
                 nova_populacao.append(filho)
 
