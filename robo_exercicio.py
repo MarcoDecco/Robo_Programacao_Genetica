@@ -792,20 +792,47 @@ class ProgramacaoGenetica:
                     if sem_energia or ambiente.passo():
                         break
 
-                # Calcular fitness
+                # Calcular fitness base
+                fitness_base = 100  # Novo: Fitness base para garantir valor positivo
+                
+                # Pontuações positivas
+                pontos_recursos = robo.recursos_coletados * 150
+                pontos_distancia = robo.distancia_percorrida * 0.2
+                pontos_energia = robo.energia * 0.8
+                
+                # Penalidades (convertidas para valores positivos menores)
+                penalidade_colisoes = min(robo.colisoes * 20, 100)  # Limita a penalidade por colisões
+                penalidade_tempo_parado = min(robo.tempo_parado, 50)  # Limita a penalidade por tempo parado
+                penalidade_energia = (100 - robo.energia) * 0.4  # Reduzida a penalidade por energia
+                penalidade_tempo = min(ambiente.tempo * 0.05, 50)  # Limita a penalidade por tempo
+                
+                # Bônus por eficiência
+                bonus_eficiencia = 0
+                if robo.recursos_coletados > 0:
+                    eficiencia = robo.recursos_coletados / (robo.distancia_percorrida + 1)
+                    bonus_eficiencia = eficiencia * 200
+                
+                # Bônus por meta
+                bonus_meta = 1000 if robo.meta_atingida else 0
+                
+                # Cálculo final do fitness
                 fitness_tentativa = (
-                    robo.recursos_coletados * 100 +  # Pontos por recursos coletados
-                    robo.distancia_percorrida * 0.1 -  # Pontos por distância percorrida
-                    robo.colisoes * 50 -  # Penalidade por colisões
-                    # Penalidade por consumo de energia
-                    (100 - robo.energia) * 0.5
+                    fitness_base +
+                    pontos_recursos +
+                    pontos_distancia +
+                    pontos_energia +
+                    bonus_eficiencia +
+                    bonus_meta -
+                    penalidade_colisoes -
+                    penalidade_tempo_parado -
+                    penalidade_energia -
+                    penalidade_tempo
                 )
-
-                # Adicionar pontos extras por atingir a meta
-                if robo.meta_atingida:
-                    fitness_tentativa += 500  # Pontos extras por atingir a meta
-
-                fitness += max(0, fitness_tentativa)
+                
+                # Garantir que o fitness seja sempre positivo
+                fitness_tentativa = max(1, fitness_tentativa)
+                
+                fitness += fitness_tentativa
 
             individuo.fitness = fitness / 5  # Média das 5 tentativas
 
