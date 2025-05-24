@@ -574,7 +574,9 @@ class IndividuoPG:
 
         # OPERADORES DISPONÍVEIS PARA O ALUNO MODIFICAR
         operador = random.choice(
-            ['+', '-', '*', '/', 'max', 'min', 'abs', 'if_positivo', 'if_negativo'])
+            ['+', '-', '*', '/', 'max', 'min', 'abs', 'if_positivo', 'if_negativo',
+             'normalize', 'sigmoid', 'tanh', 'distancia', 'angulo_normalizado',
+             'if_maior', 'if_menor', 'if_proximo'])
         if operador in ['+', '-', '*', '/']:
             return {
                 'tipo': 'operador',
@@ -589,14 +591,14 @@ class IndividuoPG:
                 'esquerda': IndividuoPG(self.profundidade - 1).arvore_aceleracao,
                 'direita': IndividuoPG(self.profundidade - 1).arvore_aceleracao
             }
-        elif operador == 'abs':
+        elif operador in ['abs', 'normalize', 'sigmoid', 'tanh']:
             return {
                 'tipo': 'operador',
                 'operador': operador,
                 'esquerda': IndividuoPG(self.profundidade - 1).arvore_aceleracao,
                 'direita': None
             }
-        else:  # if_positivo ou if_negativo
+        else:  # operadores de controle
             return {
                 'tipo': 'operador',
                 'operador': operador,
@@ -636,22 +638,49 @@ class IndividuoPG:
 
         if no['operador'] == 'abs':
             return abs(self.avaliar_no(no['esquerda'], sensores))
+        elif no['operador'] == 'normalize':
+            valor = self.avaliar_no(no['esquerda'], sensores)
+            return valor / (1 + abs(valor))  # Normalização para [-1, 1]
+        elif no['operador'] == 'sigmoid':
+            valor = self.avaliar_no(no['esquerda'], sensores)
+            return 1 / (1 + np.exp(-valor))  # Sigmoid para [0, 1]
+        elif no['operador'] == 'tanh':
+            valor = self.avaliar_no(no['esquerda'], sensores)
+            return np.tanh(valor)  # Tanh para [-1, 1]
+        elif no['operador'] == 'distancia':
+            valor = self.avaliar_no(no['esquerda'], sensores)
+            return np.sqrt(valor**2)  # Distância euclidiana
+        elif no['operador'] == 'angulo_normalizado':
+            valor = self.avaliar_no(no['esquerda'], sensores)
+            return valor % (2 * np.pi)  # Normaliza ângulo para [0, 2π]
+        elif no['operador'] == 'if_maior':
+            valor = self.avaliar_no(no['esquerda'], sensores)
+            if valor > 0:
+                return self.avaliar_no(no['direita'], sensores)
+            return 0
+        elif no['operador'] == 'if_menor':
+            valor = self.avaliar_no(no['esquerda'], sensores)
+            if valor < 0:
+                return self.avaliar_no(no['direita'], sensores)
+            return 0
+        elif no['operador'] == 'if_proximo':
+            valor = self.avaliar_no(no['esquerda'], sensores)
+            if abs(valor) < 0.1:  # Se estiver próximo de zero
+                return self.avaliar_no(no['direita'], sensores)
+            return 0
         elif no['operador'] == 'if_positivo':
             valor = self.avaliar_no(no['esquerda'], sensores)
             if valor > 0:
                 return self.avaliar_no(no['direita'], sensores)
-            else:
-                return 0
+            return 0
         elif no['operador'] == 'if_negativo':
             valor = self.avaliar_no(no['esquerda'], sensores)
             if valor < 0:
                 return self.avaliar_no(no['direita'], sensores)
-            else:
-                return 0
+            return 0
 
         esquerda = self.avaliar_no(no['esquerda'], sensores)
-        direita = self.avaliar_no(
-            no['direita'], sensores) if no['direita'] is not None else 0
+        direita = self.avaliar_no(no['direita'], sensores) if no['direita'] is not None else 0
 
         if no['operador'] == '+':
             return esquerda + direita
@@ -666,7 +695,7 @@ class IndividuoPG:
         else:  # min
             return min(esquerda, direita)
 
-    def mutacao(self, probabilidade=0.1):
+    def mutacao(self, probabilidade=0.15):
         # PROBABILIDADE DE MUTAÇÃO PARA O ALUNO MODIFICAR
         self.mutacao_no(self.arvore_aceleracao, probabilidade)
         self.mutacao_no(self.arvore_rotacao, probabilidade)
@@ -676,7 +705,7 @@ class IndividuoPG:
             if no['tipo'] == 'folha':
                 if 'valor' in no:
                     # VALOR ALEATÓRIO PARA O ALUNO MODIFICAR
-                    no['valor'] = random.uniform(-5, 5)
+                    no['valor'] = random.uniform(-1, 1)
                 elif 'variavel' in no:
                     no['variavel'] = random.choice(['dist_recurso', 'dist_obstaculo', 'dist_meta',
                                                    'angulo_recurso', 'angulo_meta', 'energia', 'velocidade', 'meta_atingida'])
