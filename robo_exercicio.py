@@ -695,7 +695,7 @@ class IndividuoPG:
         else:  # min
             return min(esquerda, direita)
 
-    def mutacao(self, probabilidade=0.15):
+    def mutacao(self, probabilidade=0.1):
         # PROBABILIDADE DE MUTAÇÃO PARA O ALUNO MODIFICAR
         self.mutacao_no(self.arvore_aceleracao, probabilidade)
         self.mutacao_no(self.arvore_rotacao, probabilidade)
@@ -705,7 +705,7 @@ class IndividuoPG:
             if no['tipo'] == 'folha':
                 if 'valor' in no:
                     # VALOR ALEATÓRIO PARA O ALUNO MODIFICAR
-                    no['valor'] = random.uniform(-1, 1)
+                    no['valor'] = random.uniform(-5, 5)
                 elif 'variavel' in no:
                     no['variavel'] = random.choice(['dist_recurso', 'dist_obstaculo', 'dist_meta',
                                                    'angulo_recurso', 'angulo_meta', 'energia', 'velocidade', 'meta_atingida'])
