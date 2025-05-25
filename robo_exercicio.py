@@ -703,7 +703,7 @@ class IndividuoPG:
 
 
 class ProgramacaoGenetica:
-    def __init__(self, tamanho_populacao=40, profundidade=5):
+    def __init__(self, tamanho_populacao=50, profundidade=4):
         self.tamanho_populacao = tamanho_populacao
         self.profundidade = profundidade
         self.populacao = [IndividuoPG(profundidade) for _ in range(tamanho_populacao)]
@@ -755,16 +755,16 @@ class ProgramacaoGenetica:
                 recursos_nao_coletados = estado['recursos_restantes']
 
                 fitness_tentativa = (
-                    robo.recursos_coletados * 3000 +
+                    robo.recursos_coletados * 5000 +
                     (5000 if (robo.meta_atingida and recursos_nao_coletados == 0) else 0) -
-                    recursos_nao_coletados * 3000 -
+                    recursos_nao_coletados * 7000 -
                     robo.colisoes * 180 +
                     robo.energia * 4 +
                     robo.distancia_percorrida * 0.5
                 )
 
                 if recursos_nao_coletados > 0 and robo.meta_atingida:
-                    fitness_tentativa -= 4000
+                    fitness_tentativa -= 5000
 
                 fitness += max(1, fitness_tentativa)
 
