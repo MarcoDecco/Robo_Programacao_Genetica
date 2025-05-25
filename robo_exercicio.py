@@ -565,9 +565,8 @@ class IndividuoPG:
         self.arvore_aceleracao = self.criar_arvore(profundidade)
         self.arvore_rotacao = self.criar_arvore(profundidade)
         self.fitness = 0
-        self.ultima_colisao = 0
-        self.passou_perto_meta = False  # Novo: flag para armazenar se passou perto da meta
-        self.distancia_minima_meta = float('inf')  # Novo: armazenar a menor distância até a meta
+        self.posicao_meta_conhecida = False
+        self.posicao_meta = {'x': 0, 'y': 0}
 
     def criar_arvore(self, profundidade):
         if profundidade == 0:
@@ -603,27 +602,11 @@ class IndividuoPG:
             return {'tipo': 'folha', 'variavel': terminal}
 
     def avaliar(self, sensores, tipo='aceleracao'):
-        # Atualizar informações sobre proximidade da meta
-        if 'dist_meta' in sensores:
-            self.distancia_minima_meta = min(self.distancia_minima_meta, sensores['dist_meta'])
-            if sensores['dist_meta'] < 100:  # Se passou a menos de 100 unidades da meta
-                self.passou_perto_meta = True
-
-        # Ajustar a avaliação baseada na última colisão
-        if self.ultima_colisao > 0:
-            if tipo == 'aceleracao':
-                sensores['velocidade'] *= 0.5
-            elif tipo == 'rotacao':
-                sensores['dist_obstaculo'] *= 1.5
-
-        # Ajustar sensores baseado no estado atual
-        if sensores.get('recursos_restantes', 0) == 0:
-            # Quando não há mais recursos, focar na meta
-            sensores['dist_meta'] *= 0.3
-            sensores['angulo_meta'] *= 1.5
-            if not sensores.get('meta_atingida', False):
-                sensores['dist_obstaculo'] *= 1.2
-                sensores['velocidade'] *= 0.8
+        # Atualizar posição da meta se estiver próxima
+        if not self.posicao_meta_conhecida and sensores['dist_meta'] < 100: #SE O VALOR ESTIVER MUITO ALTO ELE VAI DIRETO PARA A META E IGNORA AS VERDES
+            self.posicao_meta_conhecida = True
+            self.posicao_meta['x'] = sensores.get('meta_x', 0)
+            self.posicao_meta['y'] = sensores.get('meta_y', 0)
 
         arvore = self.arvore_aceleracao if tipo == 'aceleracao' else self.arvore_rotacao
         resultado = self.avaliar_no(arvore, sensores)
@@ -723,7 +706,9 @@ class IndividuoPG:
         with open(arquivo, 'w') as f:
             json.dump({
                 'arvore_aceleracao': self.arvore_aceleracao,
-                'arvore_rotacao': self.arvore_rotacao
+                'arvore_rotacao': self.arvore_rotacao,
+                'posicao_meta_conhecida': self.posicao_meta_conhecida,
+                'posicao_meta': self.posicao_meta
             }, f)
 
     @classmethod
@@ -733,6 +718,8 @@ class IndividuoPG:
         individuo = cls()
         individuo.arvore_aceleracao = dados['arvore_aceleracao']
         individuo.arvore_rotacao = dados['arvore_rotacao']
+        individuo.posicao_meta_conhecida = dados.get('posicao_meta_conhecida', False)
+        individuo.posicao_meta = dados.get('posicao_meta', {'x': 0, 'y': 0})
         return individuo
 
 
@@ -758,15 +745,20 @@ class ProgramacaoGenetica:
             for _ in range(3):
                 ambiente.reset()
                 robo.reset(ambiente.largura // 2, ambiente.altura // 2)
-                colisoes_consecutivas = 0
-                tempo_na_meta = 0
-                tempo_sem_meta = 0
+                individuo.posicao_meta_conhecida = False
+                individuo.posicao_meta = {'x': 0, 'y': 0}
+
+                tempo_parado = 0
+                ultima_pos = (robo.x, robo.y)
+                recursos_coletados_antes_meta = 0
 
                 while True:
                     sensores = robo.get_sensores(ambiente)
                     estado = ambiente.get_estado()
                     sensores['recursos_restantes'] = estado['recursos_restantes']
-                    
+                    sensores['meta_x'] = ambiente.meta['x']
+                    sensores['meta_y'] = ambiente.meta['y']
+
                     aceleracao = individuo.avaliar(sensores, 'aceleracao')
                     rotacao = individuo.avaliar(sensores, 'rotacao')
 
@@ -784,21 +776,18 @@ class ProgramacaoGenetica:
 
                     posicao_anterior = (robo.x, robo.y)
                     sem_energia = robo.mover(aceleracao, rotacao, ambiente)
-                    
-                    # Atualizar contadores
-                    if estado['recursos_restantes'] == 0:
-                        if robo.meta_atingida:
-                            tempo_na_meta += 1
-                            tempo_sem_meta = 0
-                        else:
-                            tempo_sem_meta += 1
-                    
-                    if (robo.x, robo.y) == posicao_anterior:
-                        colisoes_consecutivas += 1
-                        individuo.ultima_colisao = colisoes_consecutivas
+
+                    if pos_atual == ultima_pos:
+                        tempo_parado += 1
+                        if tempo_parado >= 8:
+                            robo.angulo += random.uniform(-np.pi, np.pi)
+                            tempo_parado = 0
                     else:
-                        colisoes_consecutivas = 0
-                        individuo.ultima_colisao = 0
+                        tempo_parado = 0
+                        ultima_pos = pos_atual
+
+                    if not robo.meta_atingida:
+                        recursos_coletados_antes_meta = robo.recursos_coletados
 
                     if sem_energia or ambiente.passo():
                         break
@@ -806,22 +795,7 @@ class ProgramacaoGenetica:
                 estado = ambiente.get_estado()
                 recursos_nao_coletados = estado['recursos_restantes']
 
-                # Penalidade progressiva para colisões consecutivas
-                penalidade_colisao = robo.colisoes * 150 * (1 + colisoes_consecutivas * 0.5)
-
-                # Bônus e penalidades
-                bonus_meta = 0
-                if recursos_nao_coletados == 0:
-                    if robo.meta_atingida:
-                        bonus_meta = tempo_na_meta * 15
-                    else:
-                        bonus_meta = -tempo_sem_meta * 5
-
-                # Bônus por ter passado perto da meta
-                bonus_proximidade = 0
-                if individuo.passou_perto_meta:
-                    bonus_proximidade = 500 * (1 - min(1, individuo.distancia_minima_meta / 1000))
-
+                # Cálculo do fitness modificado
                 fitness_tentativa = (
                     robo.recursos_coletados * 1200 +
                     (3000 if (robo.meta_atingida and recursos_nao_coletados == 0) else 0) +
@@ -833,8 +807,13 @@ class ProgramacaoGenetica:
                     bonus_proximidade  # Novo: bônus por proximidade da meta
                 )
 
-                if recursos_nao_coletados > 0 and robo.meta_atingida:
-                    fitness_tentativa -= 1000
+                # Penalidade se atingir a meta antes de coletar todos os recursos
+                if robo.meta_atingida and recursos_coletados_antes_meta < len(ambiente.recursos):
+                    fitness_tentativa -= 5000
+
+                # Bônus por encontrar a meta e continuar coletando recursos
+                if individuo.posicao_meta_conhecida and not robo.meta_atingida:
+                    fitness_tentativa += 1000
 
                 fitness += max(1, fitness_tentativa)
 
