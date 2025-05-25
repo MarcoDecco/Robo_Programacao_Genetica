@@ -6,6 +6,7 @@ import matplotlib.patches as patches
 import matplotlib.animation as animation
 import json
 import time
+import math
 
 # =====================================================================
 # PARTE 1: ESTRUTURA DA SIMULAÇÃO (NÃO MODIFICAR)
@@ -570,20 +571,20 @@ class IndividuoPG:
         if profundidade == 0:
             return self.criar_folha()
 
-        operador = random.choice(['+', '-', '*', '/', 'max', 'min', 'abs'])
-        if operador in ['+', '-', '*', '/', 'max', 'min']:
-            return {
-                'tipo': 'operador',
-                'operador': operador,
-                'esquerda': self.criar_arvore(profundidade - 1),
-                'direita': self.criar_arvore(profundidade - 1)
-            }
-        elif operador == 'abs':
+        operador = random.choice(['+', '-', '*', '/', 'max', 'min', 'abs', 'sin', 'cos', 'log_safe'])
+        if operador in ['abs', 'sin', 'cos', 'log_safe']:
             return {
                 'tipo': 'operador',
                 'operador': operador,
                 'esquerda': self.criar_arvore(profundidade - 1),
                 'direita': None
+            }
+        else:
+            return {
+                'tipo': 'operador',
+                'operador': operador,
+                'esquerda': self.criar_arvore(profundidade - 1),
+                'direita': self.criar_arvore(profundidade - 1)
             }
 
     def criar_folha(self):
@@ -593,7 +594,6 @@ class IndividuoPG:
             weights=[10, 10, 5, 5, 12, 4, 4, 2, 3],
             k=1
         )[0]
-
         if terminal == 'constante':
             return {'tipo': 'folha', 'valor': random.uniform(-5, 5)}
         else:
@@ -601,24 +601,7 @@ class IndividuoPG:
 
     def avaliar(self, sensores, tipo='aceleracao'):
         arvore = self.arvore_aceleracao if tipo == 'aceleracao' else self.arvore_rotacao
-        resultado = self.avaliar_no(arvore, sensores)
-
-        recursos_restantes = sensores.get('recursos_restantes', 0)
-
-        if recursos_restantes > 0:
-            resultado -= abs(sensores.get('angulo_meta', 0)) * 1.2
-            if sensores.get('dist_meta', 1000) < 120:
-                if tipo == 'aceleracao':
-                    resultado *= 0.5
-                elif tipo == 'rotacao':
-                    resultado += random.uniform(0.3, 0.6)
-        else:
-            if tipo == 'aceleracao':
-                resultado += 2.0 / (sensores.get('dist_meta', 1) + 1)
-            elif tipo == 'rotacao':
-                resultado -= abs(sensores.get('angulo_meta', 0))
-
-        return resultado
+        return self.avaliar_no(arvore, sensores)
 
     def avaliar_no(self, no, sensores):
         if no is None:
@@ -631,13 +614,20 @@ class IndividuoPG:
                 return sensores.get(no['variavel'], 0)
 
         op = no['operador']
-        if op == 'abs':
-            resultado = abs(self.avaliar_no(no['esquerda'], sensores))
-        else:
-            esquerda = self.avaliar_no(no.get('esquerda'), sensores)
-            direita = self.avaliar_no(no.get('direita'), sensores) if no.get('direita') else 0
+        try:
+            if op == 'abs':
+                resultado = abs(self.avaliar_no(no['esquerda'], sensores))
+            elif op == 'sin':
+                resultado = math.sin(self.avaliar_no(no['esquerda'], sensores))
+            elif op == 'cos':
+                resultado = math.cos(self.avaliar_no(no['esquerda'], sensores))
+            elif op == 'log_safe':
+                valor = self.avaliar_no(no['esquerda'], sensores)
+                resultado = math.log(abs(valor) + 1e-6)
+            else:
+                esquerda = self.avaliar_no(no['esquerda'], sensores)
+                direita = self.avaliar_no(no.get('direita'), sensores) if no.get('direita') else 0
 
-            try:
                 if op == '+':
                     resultado = esquerda + direita
                 elif op == '-':
@@ -645,22 +635,26 @@ class IndividuoPG:
                 elif op == '*':
                     resultado = esquerda * direita
                 elif op == '/':
-                    resultado = esquerda / direita if direita != 0 else 0
+                    if abs(direita) < 1e-6:
+                        resultado = 0
+                    else:
+                        resultado = esquerda / direita
                 elif op == 'max':
                     resultado = max(esquerda, direita)
                 elif op == 'min':
                     resultado = min(esquerda, direita)
                 else:
                     resultado = 0
-            except:
-                resultado = 0
 
-        if resultado != resultado or resultado == float('inf') or resultado == float('-inf'):
+        except Exception:
+            resultado = 0
+
+        if not np.isfinite(resultado):
             return 0
 
         return resultado
 
-    def mutacao(self, probabilidade=0.25):
+    def mutacao(self, probabilidade=0.4):
         self.arvore_aceleracao = self._mutacao_no(self.arvore_aceleracao, probabilidade)
         self.arvore_rotacao = self._mutacao_no(self.arvore_rotacao, probabilidade)
 
@@ -669,7 +663,10 @@ class IndividuoPG:
             return self.criar_arvore(2)
 
         if random.random() < probabilidade:
-            return self.criar_arvore(2)
+            if no['tipo'] == 'folha':
+                return self.criar_folha()
+            else:
+                return self.criar_arvore(2)
 
         if no['tipo'] == 'operador':
             no['esquerda'] = self._mutacao_no(no.get('esquerda'), probabilidade)
@@ -720,111 +717,141 @@ class IndividuoPG:
 
 
 class ProgramacaoGenetica:
-    def __init__(self, tamanho_populacao=50, profundidade=5):
+    def __init__(self, tamanho_populacao=60, profundidade=5, num_ilhas=5,
+                 elitismo=0.05, prob_mutacao=0.4, metodo_selecao='torneio'):
         self.tamanho_populacao = tamanho_populacao
         self.profundidade = profundidade
-        self.populacao = [IndividuoPG(profundidade) for _ in range(tamanho_populacao)]
+        self.num_ilhas = num_ilhas
+        self.populacoes = [
+            [IndividuoPG(profundidade) for _ in range(tamanho_populacao)]
+            for _ in range(num_ilhas)
+        ]
+        self.elitismo = elitismo
+        self.prob_mutacao = prob_mutacao
+        self.metodo_selecao = metodo_selecao
         self.melhor_individuo = None
         self.melhor_fitness = float('-inf')
         self.historico_fitness = []
 
-    def avaliar_populacao(self):
+    def avaliar_individuo(self, individuo):
         ambiente = Ambiente()
         robo = Robo(ambiente.largura // 2, ambiente.altura // 2)
+        fitness = 0
 
-        for individuo in self.populacao:
-            fitness = 0
+        for _ in range(3):
+            ambiente.reset()
+            x_ini, y_ini = ambiente.posicao_segura()
+            robo.reset(x_ini, y_ini)
 
-            for _ in range(3):
-                ambiente.reset()
-                robo.reset(ambiente.largura // 2, ambiente.altura // 2)
-
-                tempo_parado = 0
-                ultima_pos = (robo.x, robo.y)
-
-                while True:
-                    sensores = robo.get_sensores(ambiente)
-                    estado = ambiente.get_estado()
-                    sensores['recursos_restantes'] = estado['recursos_restantes']
-
-                    aceleracao = individuo.avaliar(sensores, 'aceleracao')
-                    rotacao = individuo.avaliar(sensores, 'rotacao')
-
-                    aceleracao = max(-1, min(1, aceleracao))
-                    rotacao = max(-0.5, min(0.5, rotacao))
-
-                    pos_atual = (robo.x, robo.y)
-                    sem_energia = robo.mover(aceleracao, rotacao, ambiente)
-
-                    if pos_atual == ultima_pos:
-                        tempo_parado += 1
-                        if tempo_parado >= 8:
-                            robo.angulo += random.uniform(-np.pi/2, np.pi/2)
-                            robo.velocidade = max(robo.velocidade, 1)
-                            tempo_parado = 0
-                    else:
-                        tempo_parado = 0
-                        ultima_pos = pos_atual
-
-                    if sem_energia or ambiente.passo():
-                        break
-
+            while True:
+                sensores = robo.get_sensores(ambiente)
                 estado = ambiente.get_estado()
-                recursos_nao_coletados = estado['recursos_restantes']
+                sensores['recursos_restantes'] = estado['recursos_restantes']
 
-                fitness_tentativa = (
-                    robo.recursos_coletados * 4000 +
-                    (7000 if (robo.meta_atingida and recursos_nao_coletados == 0) else 0) -
-                    recursos_nao_coletados * 6000 -
-                    robo.colisoes * 200 +
-                    robo.energia * 3 +
-                    robo.distancia_percorrida * 0.2
-                )
+                aceleracao = individuo.avaliar(sensores, 'aceleracao')
+                rotacao = individuo.avaliar(sensores, 'rotacao')
 
-                if recursos_nao_coletados > 0 and robo.meta_atingida:
-                    fitness_tentativa -= 8000
+                aceleracao = max(-1, min(1, aceleracao))
+                rotacao = max(-0.5, min(0.5, rotacao))
 
-                fitness += max(1, fitness_tentativa)
+                sem_energia = robo.mover(aceleracao, rotacao, ambiente)
 
-            individuo.fitness = fitness / 3
+                if sem_energia or ambiente.passo():
+                    break
 
-            if individuo.fitness > self.melhor_fitness:
-                self.melhor_fitness = individuo.fitness
-                self.melhor_individuo = individuo
+            estado = ambiente.get_estado()
 
-    def selecionar(self):
-        tamanho_torneio = 3
-        selecionados = []
+            fitness_tentativa = (
+                robo.recursos_coletados * 5000 +
+                (8000 if (robo.meta_atingida and estado['recursos_restantes'] == 0) else 0) +
+                robo.energia * 5 +
+                robo.distancia_percorrida * 0.2 -
+                robo.colisoes * 1500 -
+                estado['recursos_restantes'] * 6000
+            )
 
-        for _ in range(self.tamanho_populacao):
-            torneio = random.sample(self.populacao, tamanho_torneio)
-            vencedor = max(torneio, key=lambda x: x.fitness)
-            selecionados.append(vencedor)
+            if robo.meta_atingida and estado['recursos_restantes'] > 0:
+                fitness_tentativa -= 10000
 
-        return selecionados
+            fitness += max(1, fitness_tentativa)
 
-    def evoluir(self, n_geracoes=30):
+        return fitness / 3
+
+    def avaliar_populacoes(self):
+        for ilha in self.populacoes:
+            for individuo in ilha:
+                individuo.fitness = self.avaliar_individuo(individuo)
+
+                if individuo.fitness > self.melhor_fitness:
+                    self.melhor_fitness = individuo.fitness
+                    self.melhor_individuo = individuo
+
+    def selecionar(self, ilha):
+        if self.metodo_selecao == 'torneio':
+            tamanho_torneio = 3
+            selecionados = []
+            for _ in range(len(ilha)):
+                torneio = random.sample(ilha, tamanho_torneio)
+                vencedor = max(torneio, key=lambda x: x.fitness)
+                selecionados.append(vencedor)
+            return selecionados
+
+        elif self.metodo_selecao == 'roleta':
+            total_fitness = sum(i.fitness for i in ilha)
+            selecionados = []
+            for _ in range(len(ilha)):
+                pick = random.uniform(0, total_fitness)
+                atual = 0
+                for i in ilha:
+                    atual += i.fitness
+                    if atual > pick:
+                        selecionados.append(i)
+                        break
+            return selecionados
+
+    def migrar(self):
+        for i in range(self.num_ilhas):
+            origem = self.populacoes[i]
+            destino = self.populacoes[(i + 1) % self.num_ilhas]
+            migrantes = sorted(origem, key=lambda x: x.fitness, reverse=True)[:2]
+            destino[-2:] = migrantes
+
+    def injetar_diversidade(self):
+        for idx, ilha in enumerate(self.populacoes):
+            worst = sorted(ilha, key=lambda x: x.fitness)[:int(0.1 * len(ilha))]
+            novos = [IndividuoPG(self.profundidade) for _ in range(len(worst))]
+            for i in range(len(worst)):
+                ilha[ilha.index(worst[i])] = novos[i]
+
+    def evoluir(self, n_geracoes=20):
         for geracao in range(n_geracoes):
-            print(f"\n🧬 Geração {geracao + 1}/{n_geracoes}")
-            self.avaliar_populacao()
-            print(f"✨ Melhor fitness da geração: {self.melhor_fitness:.2f}")
-
+            print(f"\n🌍 Geração {geracao + 1}/{n_geracoes}")
+            self.avaliar_populacoes()
+            print(f"🔥 Melhor fitness até agora: {self.melhor_fitness:.2f}")
             self.historico_fitness.append(self.melhor_fitness)
 
-            selecionados = self.selecionar()
-            nova_populacao = [self.melhor_individuo]
+            for idx, ilha in enumerate(self.populacoes):
+                selecionados = self.selecionar(ilha)
+                elite_size = max(1, int(self.elitismo * len(ilha)))
+                elite = sorted(ilha, key=lambda x: x.fitness, reverse=True)[:elite_size]
 
-            while len(nova_populacao) < self.tamanho_populacao:
-                pai1, pai2 = random.sample(selecionados, 2)
-                filho = pai1.crossover(pai2)
-                filho.mutacao(probabilidade=0.25)
-                nova_populacao.append(filho)
+                nova_geracao = elite.copy()
 
-            self.populacao = nova_populacao
+                while len(nova_geracao) < len(ilha):
+                    pai1, pai2 = random.sample(selecionados, 2)
+                    filho = pai1.crossover(pai2)
+                    filho.mutacao(probabilidade=self.prob_mutacao)
+                    nova_geracao.append(filho)
+
+                self.populacoes[idx] = nova_geracao
+
+            self.migrar()
+
+            if geracao % 3 == 0:
+                print(" Injetando diversidade na geração", geracao + 1)
+                self.injetar_diversidade()
 
         return self.melhor_individuo, self.historico_fitness
-
-
 # =====================================================================
 # PARTE 3: EXECUÇÃO DO PROGRAMA (PARA O ALUNO MODIFICAR)
 # Esta parte contém a execução do programa e os parâmetros finais.
@@ -832,19 +859,22 @@ class ProgramacaoGenetica:
 
 # Executando o algoritmo
 if __name__ == "__main__":
-    print("Iniciando simulação de robô com programação genética...")
-    
-    # Criar e treinar o algoritmo genético
-    print("Treinando o algoritmo genético...")
-    # PARÂMETROS PARA O ALUNO MODIFICAR
-    pg = ProgramacaoGenetica(tamanho_populacao=40, profundidade=5)
+    print("Iniciando simulação de robô com programação genética avançada...")
+
+    pg = ProgramacaoGenetica(
+        tamanho_populacao=40,
+        profundidade=5,
+        num_ilhas=3,
+        elitismo=0.1,
+        prob_mutacao=0.3,
+        metodo_selecao='torneio'
+    )
+
     melhor_individuo, historico = pg.evoluir(n_geracoes=15)
-    
-    # Salvar o melhor indivíduo
-    print("Salvando o melhor indivíduo...")
+
+    print("\nSalvando o melhor indivíduo...")
     melhor_individuo.salvar('melhor_robo.json')
-    
-    # Plotar evolução do fitness
+
     print("Plotando evolução do fitness...")
     plt.figure(figsize=(10, 5))
     plt.plot(historico)
@@ -853,14 +883,11 @@ if __name__ == "__main__":
     plt.ylabel('Fitness')
     plt.savefig('evolucao_fitness_robo.png')
     plt.close()
-    
-    # Simular o melhor indivíduo
-    print("Simulando o melhor indivíduo...")
+
+    print("\nSimulando o melhor indivíduo...")
     ambiente = Ambiente()
     robo = Robo(ambiente.largura // 2, ambiente.altura // 2)
     simulador = Simulador(ambiente, robo, melhor_individuo)
-    
+
     print("Executando simulação em tempo real...")
-    print("A simulação será exibida em uma janela separada.")
-    print("Pressione Ctrl+C para fechar a janela quando desejar.")
-    simulador.simular() 
+    simulador.simular()
