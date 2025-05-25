@@ -713,9 +713,18 @@ class IndividuoPG:
                 elif op == '-':
                     resultado = esquerda - direita
                 elif op == '*':
-                    resultado = esquerda * direita
+                    # Tratamento especial para multiplicação
+                    if np.isnan(esquerda) or np.isnan(direita):
+                        resultado = 0
+                    elif np.isinf(esquerda) or np.isinf(direita):
+                        resultado = 0
+                    else:
+                        resultado = esquerda * direita
                 elif op == '/':
-                    resultado = esquerda / direita if direita != 0 else 0
+                    if direita == 0 or np.isnan(direita) or np.isinf(direita):
+                        resultado = 0
+                    else:
+                        resultado = esquerda / direita
                 elif op == 'max':
                     resultado = max(esquerda, direita)
                 elif op == 'min':
@@ -725,7 +734,8 @@ class IndividuoPG:
             except:
                 resultado = 0
 
-        if resultado != resultado or resultado == float('inf') or resultado == float('-inf'):
+        # Verificação final de valores inválidos
+        if np.isnan(resultado) or np.isinf(resultado):
             return 0
 
         return resultado
