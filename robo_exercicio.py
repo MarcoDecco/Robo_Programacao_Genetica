@@ -587,12 +587,12 @@ class IndividuoPG:
             }
 
     def criar_folha(self):
-        terminal = random.choice([
-            'dist_recurso', 'angulo_recurso',
-            'dist_meta', 'angulo_meta',
-            'dist_obstaculo', 'energia',
-            'velocidade', 'meta_atingida', 'constante'
-        ])
+        terminal = random.choices(
+            ['dist_recurso', 'angulo_recurso', 'dist_meta', 'angulo_meta',
+             'dist_obstaculo', 'energia', 'velocidade', 'meta_atingida', 'constante'],
+            weights=[10, 10, 5, 5, 12, 4, 4, 2, 3],
+            k=1
+        )[0]
 
         if terminal == 'constante':
             return {'tipo': 'folha', 'valor': random.uniform(-5, 5)}
@@ -601,7 +601,24 @@ class IndividuoPG:
 
     def avaliar(self, sensores, tipo='aceleracao'):
         arvore = self.arvore_aceleracao if tipo == 'aceleracao' else self.arvore_rotacao
-        return self.avaliar_no(arvore, sensores)
+        resultado = self.avaliar_no(arvore, sensores)
+
+        recursos_restantes = sensores.get('recursos_restantes', 0)
+
+        if recursos_restantes > 0:
+            resultado -= abs(sensores.get('angulo_meta', 0)) * 1.2
+            if sensores.get('dist_meta', 1000) < 120:
+                if tipo == 'aceleracao':
+                    resultado *= 0.5
+                elif tipo == 'rotacao':
+                    resultado += random.uniform(0.3, 0.6)
+        else:
+            if tipo == 'aceleracao':
+                resultado += 2.0 / (sensores.get('dist_meta', 1) + 1)
+            elif tipo == 'rotacao':
+                resultado -= abs(sensores.get('angulo_meta', 0))
+
+        return resultado
 
     def avaliar_no(self, no, sensores):
         if no is None:
@@ -643,7 +660,7 @@ class IndividuoPG:
 
         return resultado
 
-    def mutacao(self, probabilidade=0.2):
+    def mutacao(self, probabilidade=0.25):
         self.arvore_aceleracao = self._mutacao_no(self.arvore_aceleracao, probabilidade)
         self.arvore_rotacao = self._mutacao_no(self.arvore_rotacao, probabilidade)
 
@@ -703,7 +720,7 @@ class IndividuoPG:
 
 
 class ProgramacaoGenetica:
-    def __init__(self, tamanho_populacao=40, profundidade=5):
+    def __init__(self, tamanho_populacao=50, profundidade=5):
         self.tamanho_populacao = tamanho_populacao
         self.profundidade = profundidade
         self.populacao = [IndividuoPG(profundidade) for _ in range(tamanho_populacao)]
@@ -742,7 +759,8 @@ class ProgramacaoGenetica:
                     if pos_atual == ultima_pos:
                         tempo_parado += 1
                         if tempo_parado >= 8:
-                            robo.angulo += random.uniform(-np.pi, np.pi)  # Gira para destravar
+                            robo.angulo += random.uniform(-np.pi/2, np.pi/2)
+                            robo.velocidade = max(robo.velocidade, 1)
                             tempo_parado = 0
                     else:
                         tempo_parado = 0
@@ -755,16 +773,16 @@ class ProgramacaoGenetica:
                 recursos_nao_coletados = estado['recursos_restantes']
 
                 fitness_tentativa = (
-                    robo.recursos_coletados * 3000 +
-                    (5000 if (robo.meta_atingida and recursos_nao_coletados == 0) else 0) -
-                    recursos_nao_coletados * 4000 -
-                    robo.colisoes * 150 +
-                    robo.energia * 2 +
+                    robo.recursos_coletados * 4000 +
+                    (7000 if (robo.meta_atingida and recursos_nao_coletados == 0) else 0) -
+                    recursos_nao_coletados * 6000 -
+                    robo.colisoes * 200 +
+                    robo.energia * 3 +
                     robo.distancia_percorrida * 0.2
                 )
 
                 if recursos_nao_coletados > 0 and robo.meta_atingida:
-                    fitness_tentativa -= 5000
+                    fitness_tentativa -= 8000
 
                 fitness += max(1, fitness_tentativa)
 
@@ -799,7 +817,7 @@ class ProgramacaoGenetica:
             while len(nova_populacao) < self.tamanho_populacao:
                 pai1, pai2 = random.sample(selecionados, 2)
                 filho = pai1.crossover(pai2)
-                filho.mutacao(probabilidade=0.18)
+                filho.mutacao(probabilidade=0.25)
                 nova_populacao.append(filho)
 
             self.populacao = nova_populacao
