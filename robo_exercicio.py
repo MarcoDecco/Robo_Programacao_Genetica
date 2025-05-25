@@ -645,7 +645,6 @@ class IndividuoPG:
                     resultado = min(esquerda, direita)
                 else:
                     resultado = 0
-
         except Exception:
             resultado = 0
 
@@ -766,7 +765,7 @@ class ProgramacaoGenetica:
                 (8000 if (robo.meta_atingida and estado['recursos_restantes'] == 0) else 0) +
                 robo.energia * 5 +
                 robo.distancia_percorrida * 0.2 -
-                robo.colisoes * 1500 -
+                robo.colisoes * 3000 -
                 estado['recursos_restantes'] * 6000
             )
 
@@ -847,8 +846,8 @@ class ProgramacaoGenetica:
 
             self.migrar()
 
-            if geracao % 3 == 0:
-                print(" Injetando diversidade na geração", geracao + 1)
+            if (geracao + 1) % 3 == 0:
+                print("💥 Injetando diversidade na geração", geracao + 1)
                 self.injetar_diversidade()
 
         return self.melhor_individuo, self.historico_fitness
