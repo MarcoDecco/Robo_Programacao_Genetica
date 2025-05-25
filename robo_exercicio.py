@@ -757,14 +757,14 @@ class ProgramacaoGenetica:
                 fitness_tentativa = (
                     robo.recursos_coletados * 3000 +
                     (5000 if (robo.meta_atingida and recursos_nao_coletados == 0) else 0) -
-                    recursos_nao_coletados * 4000 -
-                    robo.colisoes * 150 +
-                    robo.energia * 2 +
-                    robo.distancia_percorrida * 0.2
+                    recursos_nao_coletados * 3000 -
+                    robo.colisoes * 180 +
+                    robo.energia * 4 +
+                    robo.distancia_percorrida * 0.5
                 )
 
                 if recursos_nao_coletados > 0 and robo.meta_atingida:
-                    fitness_tentativa -= 5000
+                    fitness_tentativa -= 4000
 
                 fitness += max(1, fitness_tentativa)
 
