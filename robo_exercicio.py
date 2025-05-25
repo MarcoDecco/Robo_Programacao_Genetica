@@ -559,70 +559,83 @@ class Simulador:
 # Esta parte contém a implementação do algoritmo genético.
 # Deve modificar os parâmetros e a lógica para melhorar o desempenho.
 # =====================================================================
-
-
 class IndividuoPG:
-    def __init__(self, profundidade=3):
+    def __init__(self, profundidade=5):
         self.profundidade = profundidade
-        self.arvore_aceleracao = self.criar_arvore_aleatoria()
-        self.arvore_rotacao = self.criar_arvore_aleatoria()
+        self.arvore_aceleracao = self.criar_arvore(profundidade)
+        self.arvore_rotacao = self.criar_arvore(profundidade)
         self.fitness = 0
+        self.ultima_colisao = 0
+        self.passou_perto_meta = False  # Novo: flag para armazenar se passou perto da meta
+        self.distancia_minima_meta = float('inf')  # Novo: armazenar a menor distância até a meta
 
-    def criar_arvore_aleatoria(self):
-        if self.profundidade == 0:
+    def criar_arvore(self, profundidade):
+        if profundidade == 0:
             return self.criar_folha()
 
-        # OPERADORES DISPONÍVEIS PARA O ALUNO MODIFICAR
-        operador = random.choice(
-            ['+', '-', '*', '/', 'max', 'min', 'abs', 'if_positivo', 'if_negativo'])
-        if operador in ['+', '-', '*', '/']:
+        operador = random.choice(['+', '-', '*', '/', 'max', 'min', 'abs'])
+        if operador in ['+', '-', '*', '/', 'max', 'min']:
             return {
                 'tipo': 'operador',
                 'operador': operador,
-                'esquerda': IndividuoPG(self.profundidade - 1).arvore_aceleracao,
-                'direita': IndividuoPG(self.profundidade - 1).arvore_aceleracao
-            }
-        elif operador in ['max', 'min']:
-            return {
-                'tipo': 'operador',
-                'operador': operador,
-                'esquerda': IndividuoPG(self.profundidade - 1).arvore_aceleracao,
-                'direita': IndividuoPG(self.profundidade - 1).arvore_aceleracao
+                'esquerda': self.criar_arvore(profundidade - 1),
+                'direita': self.criar_arvore(profundidade - 1)
             }
         elif operador == 'abs':
             return {
                 'tipo': 'operador',
                 'operador': operador,
-                'esquerda': IndividuoPG(self.profundidade - 1).arvore_aceleracao,
+                'esquerda': self.criar_arvore(profundidade - 1),
                 'direita': None
-            }
-        else:  # if_positivo ou if_negativo
-            return {
-                'tipo': 'operador',
-                'operador': operador,
-                'esquerda': IndividuoPG(self.profundidade - 1).arvore_aceleracao,
-                'direita': IndividuoPG(self.profundidade - 1).arvore_aceleracao
             }
 
     def criar_folha(self):
-        # VARIÁVEIS DISPONÍVEIS PARA O ALUNO MODIFICAR
-        tipo = random.choice(['constante', 'dist_recurso', 'dist_obstaculo', 'dist_meta',
-                             'angulo_recurso', 'angulo_meta', 'energia', 'velocidade', 'meta_atingida'])
-        if tipo == 'constante':
-            return {
-                'tipo': 'folha',
-                # VALOR ALEATÓRIO PARA O ALUNO MODIFICAR
-                'valor': random.uniform(-5, 5)
-            }
+        terminal = random.choices(
+            ['dist_recurso', 'angulo_recurso', 'dist_meta', 'angulo_meta',
+             'dist_obstaculo', 'energia', 'velocidade', 'meta_atingida', 'constante'],
+            weights=[8, 6, 8, 8, 12, 5, 5, 2, 3],
+            k=1
+        )[0]
+
+        if terminal == 'constante':
+            return {'tipo': 'folha', 'valor': random.uniform(-5, 5)}
         else:
-            return {
-                'tipo': 'folha',
-                'variavel': tipo
-            }
+            return {'tipo': 'folha', 'variavel': terminal}
 
     def avaliar(self, sensores, tipo='aceleracao'):
+        # Atualizar informações sobre proximidade da meta
+        if 'dist_meta' in sensores:
+            self.distancia_minima_meta = min(self.distancia_minima_meta, sensores['dist_meta'])
+            if sensores['dist_meta'] < 100:  # Se passou a menos de 100 unidades da meta
+                self.passou_perto_meta = True
+
+        # Ajustar a avaliação baseada na última colisão
+        if self.ultima_colisao > 0:
+            if tipo == 'aceleracao':
+                sensores['velocidade'] *= 0.5
+            elif tipo == 'rotacao':
+                sensores['dist_obstaculo'] *= 1.5
+
+        # Ajustar sensores baseado no estado atual
+        if sensores.get('recursos_restantes', 0) == 0:
+            # Quando não há mais recursos, focar na meta
+            sensores['dist_meta'] *= 0.3
+            sensores['angulo_meta'] *= 1.5
+            if not sensores.get('meta_atingida', False):
+                sensores['dist_obstaculo'] *= 1.2
+                sensores['velocidade'] *= 0.8
+
         arvore = self.arvore_aceleracao if tipo == 'aceleracao' else self.arvore_rotacao
-        return self.avaliar_no(arvore, sensores)
+        resultado = self.avaliar_no(arvore, sensores)
+        
+        # Ajustar resultado baseado na distância do obstáculo
+        if sensores['dist_obstaculo'] < 50:
+            if tipo == 'aceleracao':
+                resultado *= 0.5
+            elif tipo == 'rotacao':
+                resultado *= 1.5
+
+        return resultado
 
     def avaliar_no(self, no, sensores):
         if no is None:
@@ -631,78 +644,80 @@ class IndividuoPG:
         if no['tipo'] == 'folha':
             if 'valor' in no:
                 return no['valor']
-            elif 'variavel' in no:
-                return sensores[no['variavel']]
+            if 'variavel' in no:
+                return sensores.get(no['variavel'], 0)
 
-        if no['operador'] == 'abs':
-            return abs(self.avaliar_no(no['esquerda'], sensores))
-        elif no['operador'] == 'if_positivo':
-            valor = self.avaliar_no(no['esquerda'], sensores)
-            if valor > 0:
-                return self.avaliar_no(no['direita'], sensores)
-            else:
-                return 0
-        elif no['operador'] == 'if_negativo':
-            valor = self.avaliar_no(no['esquerda'], sensores)
-            if valor < 0:
-                return self.avaliar_no(no['direita'], sensores)
-            else:
-                return 0
+        op = no['operador']
+        if op == 'abs':
+            resultado = abs(self.avaliar_no(no['esquerda'], sensores))
+        else:
+            esquerda = self.avaliar_no(no.get('esquerda'), sensores)
+            direita = self.avaliar_no(no.get('direita'), sensores) if no.get('direita') else 0
 
-        esquerda = self.avaliar_no(no['esquerda'], sensores)
-        direita = self.avaliar_no(
-            no['direita'], sensores) if no['direita'] is not None else 0
+            try:
+                if op == '+':
+                    resultado = esquerda + direita
+                elif op == '-':
+                    resultado = esquerda - direita
+                elif op == '*':
+                    resultado = esquerda * direita
+                elif op == '/':
+                    resultado = esquerda / direita if direita != 0 else 0
+                elif op == 'max':
+                    resultado = max(esquerda, direita)
+                elif op == 'min':
+                    resultado = min(esquerda, direita)
+                else:
+                    resultado = 0
+            except:
+                resultado = 0
 
-        if no['operador'] == '+':
-            return esquerda + direita
-        elif no['operador'] == '-':
-            return esquerda - direita
-        elif no['operador'] == '*':
-            return esquerda * direita
-        elif no['operador'] == '/':
-            return esquerda / direita if direita != 0 else 0
-        elif no['operador'] == 'max':
-            return max(esquerda, direita)
-        else:  # min
-            return min(esquerda, direita)
+        if resultado != resultado or resultado == float('inf') or resultado == float('-inf'):
+            return 0
 
-    def mutacao(self, probabilidade=0.1):
-        # PROBABILIDADE DE MUTAÇÃO PARA O ALUNO MODIFICAR
-        self.mutacao_no(self.arvore_aceleracao, probabilidade)
-        self.mutacao_no(self.arvore_rotacao, probabilidade)
+        return resultado
 
-    def mutacao_no(self, no, probabilidade):
+    def mutacao(self, probabilidade=0.2):
+        self.arvore_aceleracao = self._mutacao_no(self.arvore_aceleracao, probabilidade)
+        self.arvore_rotacao = self._mutacao_no(self.arvore_rotacao, probabilidade)
+
+    def _mutacao_no(self, no, probabilidade):
+        if no is None:
+            return self.criar_arvore(2)
+
         if random.random() < probabilidade:
-            if no['tipo'] == 'folha':
-                if 'valor' in no:
-                    # VALOR ALEATÓRIO PARA O ALUNO MODIFICAR
-                    no['valor'] = random.uniform(-5, 5)
-                elif 'variavel' in no:
-                    no['variavel'] = random.choice(['dist_recurso', 'dist_obstaculo', 'dist_meta',
-                                                   'angulo_recurso', 'angulo_meta', 'energia', 'velocidade', 'meta_atingida'])
-            else:
-                no['operador'] = random.choice(
-                    ['+', '-', '*', '/', 'max', 'min', 'abs', 'if_positivo', 'if_negativo'])
+            return self.criar_arvore(2)
 
         if no['tipo'] == 'operador':
-            self.mutacao_no(no['esquerda'], probabilidade)
-            if no['direita'] is not None:
-                self.mutacao_no(no['direita'], probabilidade)
+            no['esquerda'] = self._mutacao_no(no.get('esquerda'), probabilidade)
+            if no.get('direita') is not None:
+                no['direita'] = self._mutacao_no(no.get('direita'), probabilidade)
+        return no
 
     def crossover(self, outro):
-        novo = IndividuoPG(self.profundidade)
-        novo.arvore_aceleracao = self.crossover_no(
-            self.arvore_aceleracao, outro.arvore_aceleracao)
-        novo.arvore_rotacao = self.crossover_no(
-            self.arvore_rotacao, outro.arvore_rotacao)
-        return novo
+        filho = IndividuoPG(self.profundidade)
+        filho.arvore_aceleracao = self._crossover_no(self.arvore_aceleracao, outro.arvore_aceleracao)
+        filho.arvore_rotacao = self._crossover_no(self.arvore_rotacao, outro.arvore_rotacao)
+        return filho
 
-    def crossover_no(self, no1, no2):
-        # PROBABILIDADE DE CROSSOVER PARA O ALUNO MODIFICAR
-        if random.random() < 0.5:
-            return no1.copy()
-        else:
-            return no2.copy()
+    def _crossover_no(self, no1, no2):
+        if no1 is None:
+            return json.loads(json.dumps(no2))
+        if no2 is None:
+            return json.loads(json.dumps(no1))
+
+        if no1['tipo'] == 'folha' or no2['tipo'] == 'folha':
+            return json.loads(json.dumps(random.choice([no1, no2])))
+
+        if no1['operador'] == no2['operador']:
+            return {
+                'tipo': 'operador',
+                'operador': no1['operador'],
+                'esquerda': self._crossover_no(no1.get('esquerda'), no2.get('esquerda')),
+                'direita': self._crossover_no(no1.get('direita'), no2.get('direita'))
+            }
+
+        return json.loads(json.dumps(random.choice([no1, no2])))
 
     def salvar(self, arquivo):
         with open(arquivo, 'w') as f:
@@ -715,19 +730,17 @@ class IndividuoPG:
     def carregar(cls, arquivo):
         with open(arquivo, 'r') as f:
             dados = json.load(f)
-            individuo = cls()
-            individuo.arvore_aceleracao = dados['arvore_aceleracao']
-            individuo.arvore_rotacao = dados['arvore_rotacao']
-            return individuo
+        individuo = cls()
+        individuo.arvore_aceleracao = dados['arvore_aceleracao']
+        individuo.arvore_rotacao = dados['arvore_rotacao']
+        return individuo
 
 
 class ProgramacaoGenetica:
-    def __init__(self, tamanho_populacao=50, profundidade=3):
-        # PARÂMETROS PARA O ALUNO MODIFICAR
+    def __init__(self, tamanho_populacao=40, profundidade=5):
         self.tamanho_populacao = tamanho_populacao
         self.profundidade = profundidade
-        self.populacao = [IndividuoPG(profundidade)
-                          for _ in range(tamanho_populacao)]
+        self.populacao = [IndividuoPG(profundidade) for _ in range(tamanho_populacao)]
         self.melhor_individuo = None
         self.melhor_fitness = float('-inf')
         self.historico_fitness = []
@@ -738,57 +751,101 @@ class ProgramacaoGenetica:
 
         for individuo in self.populacao:
             fitness = 0
+            individuo.ultima_colisao = 0
+            individuo.passou_perto_meta = False  # Resetar flag
+            individuo.distancia_minima_meta = float('inf')  # Resetar distância mínima
 
-            # Simular 5 tentativas
-            for _ in range(5):
+            for _ in range(3):
                 ambiente.reset()
                 robo.reset(ambiente.largura // 2, ambiente.altura // 2)
+                colisoes_consecutivas = 0
+                tempo_na_meta = 0
+                tempo_sem_meta = 0
 
                 while True:
-                    # Obter sensores
                     sensores = robo.get_sensores(ambiente)
-
-                    # Avaliar árvores de decisão
+                    estado = ambiente.get_estado()
+                    sensores['recursos_restantes'] = estado['recursos_restantes']
+                    
                     aceleracao = individuo.avaliar(sensores, 'aceleracao')
                     rotacao = individuo.avaliar(sensores, 'rotacao')
 
-                    # Limitar valores
+                    # Ajustar comportamento quando todos os recursos foram coletados
+                    if estado['recursos_restantes'] == 0:
+                        if not robo.meta_atingida:
+                            aceleracao *= 0.8
+                            rotacao *= 1.2
+                        else:
+                            aceleracao *= 0.5
+                            rotacao *= 0.8
+
                     aceleracao = max(-1, min(1, aceleracao))
                     rotacao = max(-0.5, min(0.5, rotacao))
 
-                    # Mover robô
+                    posicao_anterior = (robo.x, robo.y)
                     sem_energia = robo.mover(aceleracao, rotacao, ambiente)
+                    
+                    # Atualizar contadores
+                    if estado['recursos_restantes'] == 0:
+                        if robo.meta_atingida:
+                            tempo_na_meta += 1
+                            tempo_sem_meta = 0
+                        else:
+                            tempo_sem_meta += 1
+                    
+                    if (robo.x, robo.y) == posicao_anterior:
+                        colisoes_consecutivas += 1
+                        individuo.ultima_colisao = colisoes_consecutivas
+                    else:
+                        colisoes_consecutivas = 0
+                        individuo.ultima_colisao = 0
 
-                    # Verificar fim da simulação
                     if sem_energia or ambiente.passo():
                         break
 
-                # Calcular fitness
+                estado = ambiente.get_estado()
+                recursos_nao_coletados = estado['recursos_restantes']
+
+                # Penalidade progressiva para colisões consecutivas
+                penalidade_colisao = robo.colisoes * 150 * (1 + colisoes_consecutivas * 0.5)
+
+                # Bônus e penalidades
+                bonus_meta = 0
+                if recursos_nao_coletados == 0:
+                    if robo.meta_atingida:
+                        bonus_meta = tempo_na_meta * 15
+                    else:
+                        bonus_meta = -tempo_sem_meta * 5
+
+                # Bônus por ter passado perto da meta
+                bonus_proximidade = 0
+                if individuo.passou_perto_meta:
+                    bonus_proximidade = 500 * (1 - min(1, individuo.distancia_minima_meta / 1000))
+
                 fitness_tentativa = (
-                    robo.recursos_coletados * 100 +  # Pontos por recursos coletados
-                    robo.distancia_percorrida * 0.1 -  # Pontos por distância percorrida
-                    robo.colisoes * 50 -  # Penalidade por colisões
-                    # Penalidade por consumo de energia
-                    (100 - robo.energia) * 0.5
+                    robo.recursos_coletados * 1200 +
+                    (3000 if (robo.meta_atingida and recursos_nao_coletados == 0) else 0) +
+                    robo.energia * 2 +
+                    robo.distancia_percorrida * 0.2 -
+                    penalidade_colisao -
+                    recursos_nao_coletados * 1500 +
+                    bonus_meta +
+                    bonus_proximidade  # Novo: bônus por proximidade da meta
                 )
 
-                # Adicionar pontos extras por atingir a meta
-                if robo.meta_atingida:
-                    fitness_tentativa += 500  # Pontos extras por atingir a meta
+                if recursos_nao_coletados > 0 and robo.meta_atingida:
+                    fitness_tentativa -= 1000
 
-                fitness += max(0, fitness_tentativa)
+                fitness += max(1, fitness_tentativa)
 
-            individuo.fitness = fitness / 5  # Média das 5 tentativas
+            individuo.fitness = fitness / 3
 
-            # Atualizar melhor indivíduo
             if individuo.fitness > self.melhor_fitness:
                 self.melhor_fitness = individuo.fitness
                 self.melhor_individuo = individuo
 
     def selecionar(self):
-        # MÉTODO DE SELEÇÃO PARA O ALUNO MODIFICAR
-        # Seleção por torneio
-        tamanho_torneio = 3  # TAMANHO DO TORNEIO PARA O ALUNO MODIFICAR
+        tamanho_torneio = 3
         selecionados = []
 
         for _ in range(self.tamanho_populacao):
@@ -798,59 +855,48 @@ class ProgramacaoGenetica:
 
         return selecionados
 
-    def evoluir(self, n_geracoes=50):
-        # NÚMERO DE GERAÇÕES PARA O ALUNO MODIFICAR
+    def evoluir(self, n_geracoes=10):
         for geracao in range(n_geracoes):
-            print(f"Geração {geracao + 1}/{n_geracoes}")
-
-            # Avaliar população
+            print(f"\n🧬 Geração {geracao + 1}/{n_geracoes}")
             self.avaliar_populacao()
+            print(f"✨ Melhor fitness da geração: {self.melhor_fitness:.2f}")
 
-            # Registrar melhor fitness
             self.historico_fitness.append(self.melhor_fitness)
-            print(f"Melhor fitness: {self.melhor_fitness:.2f}")
 
-            # Selecionar indivíduos
             selecionados = self.selecionar()
 
-            # Criar nova população
-            nova_populacao = []
+            nova_populacao = [self.melhor_individuo]
 
-            # Elitismo - manter o melhor indivíduo
-            nova_populacao.append(self.melhor_individuo)
-
-            # Preencher o resto da população
             while len(nova_populacao) < self.tamanho_populacao:
                 pai1, pai2 = random.sample(selecionados, 2)
                 filho = pai1.crossover(pai2)
-                # PROBABILIDADE DE MUTAÇÃO PARA O ALUNO MODIFICAR
-                filho.mutacao(probabilidade=0.1)
+                filho.mutacao(probabilidade=0.2)
                 nova_populacao.append(filho)
 
             self.populacao = nova_populacao
 
         return self.melhor_individuo, self.historico_fitness
 
+
 # =====================================================================
 # PARTE 3: EXECUÇÃO DO PROGRAMA (PARA O ALUNO MODIFICAR)
 # Esta parte contém a execução do programa e os parâmetros finais.
 # =====================================================================
 
-
 # Executando o algoritmo
 if __name__ == "__main__":
     print("Iniciando simulação de robô com programação genética...")
-
+    
     # Criar e treinar o algoritmo genético
     print("Treinando o algoritmo genético...")
     # PARÂMETROS PARA O ALUNO MODIFICAR
     pg = ProgramacaoGenetica(tamanho_populacao=20, profundidade=4)
-    melhor_individuo, historico = pg.evoluir(n_geracoes=5)
-
+    melhor_individuo, historico = pg.evoluir(n_geracoes=20)
+    
     # Salvar o melhor indivíduo
     print("Salvando o melhor indivíduo...")
     melhor_individuo.salvar('melhor_robo.json')
-
+    
     # Plotar evolução do fitness
     print("Plotando evolução do fitness...")
     plt.figure(figsize=(10, 5))
@@ -860,14 +906,14 @@ if __name__ == "__main__":
     plt.ylabel('Fitness')
     plt.savefig('evolucao_fitness_robo.png')
     plt.close()
-
+    
     # Simular o melhor indivíduo
     print("Simulando o melhor indivíduo...")
     ambiente = Ambiente()
     robo = Robo(ambiente.largura // 2, ambiente.altura // 2)
     simulador = Simulador(ambiente, robo, melhor_individuo)
-
+    
     print("Executando simulação em tempo real...")
     print("A simulação será exibida em uma janela separada.")
     print("Pressione Ctrl+C para fechar a janela quando desejar.")
-    simulador.simular()
+    simulador.simular() 
