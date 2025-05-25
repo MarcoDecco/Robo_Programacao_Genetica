@@ -589,12 +589,12 @@ class IndividuoPG:
             }
 
     def criar_folha(self):
-        terminal = random.choices(
-            ['dist_recurso', 'angulo_recurso', 'dist_meta', 'angulo_meta',
-             'dist_obstaculo', 'energia', 'velocidade', 'meta_atingida', 'constante'],
-            weights=[8, 6, 8, 8, 12, 5, 5, 2, 3],
-            k=1
-        )[0]
+        terminal = random.choice([
+            'dist_recurso', 'angulo_recurso',
+            'dist_meta', 'angulo_meta',
+            'dist_obstaculo', 'energia',
+            'velocidade', 'meta_atingida', 'constante'
+        ])
 
         if terminal == 'constante':
             return {'tipo': 'folha', 'valor': random.uniform(-5, 5)}
@@ -603,22 +603,13 @@ class IndividuoPG:
 
     def avaliar(self, sensores, tipo='aceleracao'):
         # Atualizar posição da meta se estiver próxima
-        if not self.posicao_meta_conhecida and sensores['dist_meta'] < 100: #SE O VALOR ESTIVER MUITO ALTO ELE VAI DIRETO PARA A META E IGNORA AS VERDES
+        if not self.posicao_meta_conhecida and sensores['dist_meta'] < 100:
             self.posicao_meta_conhecida = True
             self.posicao_meta['x'] = sensores.get('meta_x', 0)
             self.posicao_meta['y'] = sensores.get('meta_y', 0)
 
         arvore = self.arvore_aceleracao if tipo == 'aceleracao' else self.arvore_rotacao
-        resultado = self.avaliar_no(arvore, sensores)
-        
-        # Ajustar resultado baseado na distância do obstáculo
-        if sensores['dist_obstaculo'] < 50:
-            if tipo == 'aceleracao':
-                resultado *= 0.5
-            elif tipo == 'rotacao':
-                resultado *= 1.5
-
-        return resultado
+        return self.avaliar_no(arvore, sensores)
 
     def avaliar_no(self, no, sensores):
         if no is None:
@@ -738,9 +729,6 @@ class ProgramacaoGenetica:
 
         for individuo in self.populacao:
             fitness = 0
-            individuo.ultima_colisao = 0
-            individuo.passou_perto_meta = False  # Resetar flag
-            individuo.distancia_minima_meta = float('inf')  # Resetar distância mínima
 
             for _ in range(3):
                 ambiente.reset()
@@ -762,19 +750,10 @@ class ProgramacaoGenetica:
                     aceleracao = individuo.avaliar(sensores, 'aceleracao')
                     rotacao = individuo.avaliar(sensores, 'rotacao')
 
-                    # Ajustar comportamento quando todos os recursos foram coletados
-                    if estado['recursos_restantes'] == 0:
-                        if not robo.meta_atingida:
-                            aceleracao *= 0.8
-                            rotacao *= 1.2
-                        else:
-                            aceleracao *= 0.5
-                            rotacao *= 0.8
-
                     aceleracao = max(-1, min(1, aceleracao))
                     rotacao = max(-0.5, min(0.5, rotacao))
 
-                    posicao_anterior = (robo.x, robo.y)
+                    pos_atual = (robo.x, robo.y)
                     sem_energia = robo.mover(aceleracao, rotacao, ambiente)
 
                     if pos_atual == ultima_pos:
@@ -797,14 +776,12 @@ class ProgramacaoGenetica:
 
                 # Cálculo do fitness modificado
                 fitness_tentativa = (
-                    robo.recursos_coletados * 1200 +
-                    (3000 if (robo.meta_atingida and recursos_nao_coletados == 0) else 0) +
+                    robo.recursos_coletados * 3000 +
+                    (5000 if (robo.meta_atingida and recursos_nao_coletados == 0) else 0) -
+                    recursos_nao_coletados * 4000 -
+                    robo.colisoes * 150 +
                     robo.energia * 2 +
-                    robo.distancia_percorrida * 0.2 -
-                    penalidade_colisao -
-                    recursos_nao_coletados * 1500 +
-                    bonus_meta +
-                    bonus_proximidade  # Novo: bônus por proximidade da meta
+                    robo.distancia_percorrida * 0.2
                 )
 
                 # Penalidade se atingir a meta antes de coletar todos os recursos
@@ -834,7 +811,7 @@ class ProgramacaoGenetica:
 
         return selecionados
 
-    def evoluir(self, n_geracoes=10):
+    def evoluir(self, n_geracoes=30):
         for geracao in range(n_geracoes):
             print(f"\n🧬 Geração {geracao + 1}/{n_geracoes}")
             self.avaliar_populacao()
@@ -843,13 +820,131 @@ class ProgramacaoGenetica:
             self.historico_fitness.append(self.melhor_fitness)
 
             selecionados = self.selecionar()
-
             nova_populacao = [self.melhor_individuo]
 
             while len(nova_populacao) < self.tamanho_populacao:
                 pai1, pai2 = random.sample(selecionados, 2)
                 filho = pai1.crossover(pai2)
-                filho.mutacao(probabilidade=0.2)
+                filho.mutacao(probabilidade=0.18)
+                nova_populacao.append(filho)
+
+            self.populacao = nova_populacao
+
+        return self.melhor_individuo, self.historico_fitness
+
+
+class ProgramacaoGenetica:
+    def __init__(self, tamanho_populacao=40, profundidade=5):
+        self.tamanho_populacao = tamanho_populacao
+        self.profundidade = profundidade
+        self.populacao = [IndividuoPG(profundidade) for _ in range(tamanho_populacao)]
+        self.melhor_individuo = None
+        self.melhor_fitness = float('-inf')
+        self.historico_fitness = []
+
+    def avaliar_populacao(self):
+        ambiente = Ambiente()
+        robo = Robo(ambiente.largura // 2, ambiente.altura // 2)
+
+        for individuo in self.populacao:
+            fitness = 0
+
+            for _ in range(3):
+                ambiente.reset()
+                robo.reset(ambiente.largura // 2, ambiente.altura // 2)
+                individuo.posicao_meta_conhecida = False
+                individuo.posicao_meta = {'x': 0, 'y': 0}
+
+                tempo_parado = 0
+                ultima_pos = (robo.x, robo.y)
+                recursos_coletados_antes_meta = 0
+
+                while True:
+                    sensores = robo.get_sensores(ambiente)
+                    estado = ambiente.get_estado()
+                    sensores['recursos_restantes'] = estado['recursos_restantes']
+                    sensores['meta_x'] = ambiente.meta['x']
+                    sensores['meta_y'] = ambiente.meta['y']
+
+                    aceleracao = individuo.avaliar(sensores, 'aceleracao')
+                    rotacao = individuo.avaliar(sensores, 'rotacao')
+
+                    aceleracao = max(-1, min(1, aceleracao))
+                    rotacao = max(-0.5, min(0.5, rotacao))
+
+                    pos_atual = (robo.x, robo.y)
+                    sem_energia = robo.mover(aceleracao, rotacao, ambiente)
+
+                    if pos_atual == ultima_pos:
+                        tempo_parado += 1
+                        if tempo_parado >= 8:
+                            robo.angulo += random.uniform(-np.pi, np.pi)
+                            tempo_parado = 0
+                    else:
+                        tempo_parado = 0
+                        ultima_pos = pos_atual
+
+                    if not robo.meta_atingida:
+                        recursos_coletados_antes_meta = robo.recursos_coletados
+
+                    if sem_energia or ambiente.passo():
+                        break
+
+                estado = ambiente.get_estado()
+                recursos_nao_coletados = estado['recursos_restantes']
+
+                # Cálculo do fitness modificado
+                fitness_tentativa = (
+                    robo.recursos_coletados * 3000 +
+                    (5000 if (robo.meta_atingida and recursos_nao_coletados == 0) else 0) -
+                    recursos_nao_coletados * 4000 -
+                    robo.colisoes * 150 +
+                    robo.energia * 2 +
+                    robo.distancia_percorrida * 0.2
+                )
+
+                # Penalidade se atingir a meta antes de coletar todos os recursos
+                if robo.meta_atingida and recursos_coletados_antes_meta < len(ambiente.recursos):
+                    fitness_tentativa -= 5000
+
+                # Bônus por encontrar a meta e continuar coletando recursos
+                if individuo.posicao_meta_conhecida and not robo.meta_atingida:
+                    fitness_tentativa += 1000
+
+                fitness += max(1, fitness_tentativa)
+
+            individuo.fitness = fitness / 3
+
+            if individuo.fitness > self.melhor_fitness:
+                self.melhor_fitness = individuo.fitness
+                self.melhor_individuo = individuo
+
+    def selecionar(self):
+        tamanho_torneio = 3
+        selecionados = []
+
+        for _ in range(self.tamanho_populacao):
+            torneio = random.sample(self.populacao, tamanho_torneio)
+            vencedor = max(torneio, key=lambda x: x.fitness)
+            selecionados.append(vencedor)
+
+        return selecionados
+
+    def evoluir(self, n_geracoes=30):
+        for geracao in range(n_geracoes):
+            print(f"\n🧬 Geração {geracao + 1}/{n_geracoes}")
+            self.avaliar_populacao()
+            print(f"✨ Melhor fitness da geração: {self.melhor_fitness:.2f}")
+
+            self.historico_fitness.append(self.melhor_fitness)
+
+            selecionados = self.selecionar()
+            nova_populacao = [self.melhor_individuo]
+
+            while len(nova_populacao) < self.tamanho_populacao:
+                pai1, pai2 = random.sample(selecionados, 2)
+                filho = pai1.crossover(pai2)
+                filho.mutacao(probabilidade=0.18)
                 nova_populacao.append(filho)
 
             self.populacao = nova_populacao
